@@ -8,31 +8,25 @@ A Python application that generates essential CSV data profiles optimized for AI
 
 - Dual Interface
 
-  :
-
   - Modern GUI built with Tkinter for interactive use
   - Command-line interface for automation and scripting
-
+  
 - **Smart Type Detection**: Automatically identifies numeric, text, date, and boolean data types
 
 - Advanced Numeric Analysis
-
-  :
 
   - Statistical summaries (mean, median, quartiles, standard deviation)
   - Outlier detection using IQR method
   - Distribution skewness analysis
   - Automatic ID and categorical detection
   - Currency/financial data recognition
-
+  
 - Robust File Handling
-
-  :
 
   - Multiple encoding support (UTF-8, CP1252, ISO-8859-1)
   - Large file warnings (>100MB)
   - File validation and format checking
-
+  
 - **Thread-Safe GUI**: Non-blocking analysis with progress indicators
 
 - **Comprehensive Error Handling**: User-friendly error messages and validation
@@ -168,8 +162,6 @@ The profiler generates a JSON file with the following structure:
 - **Distribution Analysis**: Skewness detection (normal, left/right skewed)
 
 - Smart Classification
-
-  :
 
   - **ID Detection**: Sequential unique numbers
   - **Categorical Detection**: Low cardinality integers
