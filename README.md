@@ -1,224 +1,255 @@
-# ai-csv-profiler
+# ai‑csv‑profiler
 
-A Python application that generates essential CSV data profiles optimized for AI assistant consumption. Features both GUI and command-line interfaces for quick data analysis with minimal, actionable insights.
-
-## Features
-
-- **AI-Optimized Output**: Generates concise JSON profiles with just the essential information AI assistants need
-
-- Dual Interface
-
-  - Modern GUI built with Tkinter for interactive use
-  - Command-line interface for automation and scripting
-  
-- **Smart Type Detection**: Automatically identifies numeric, text, date, and boolean data types
-
-- Advanced Numeric Analysis
-
-  - Statistical summaries (mean, median, quartiles, standard deviation)
-  - Outlier detection using IQR method
-  - Distribution skewness analysis
-  - Automatic ID and categorical detection
-  - Currency/financial data recognition
-  
-- Robust File Handling
-
-  - Multiple encoding support (UTF-8, CP1252, ISO-8859-1)
-  - Large file warnings (>100MB)
-  - File validation and format checking
-  
-- **Thread-Safe GUI**: Non-blocking analysis with progress indicators
-
-- **Comprehensive Error Handling**: User-friendly error messages and validation
-
-## Requirements
-
-Ensure Python 3.6+ is installed, then run the following to install required libraries:
-
-```bash
-pip install pandas
-```
-
-### Linux Users
-
-If you encounter a `tkinter` import error, install it using your distribution's package manager:
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install python3-tk
-
-# CentOS/RHEL/Fedora
-sudo yum install tkinter
-# or
-sudo dnf install python3-tkinter
-```
-
-**Note**: The following libraries are included with Python's standard library and don't need separate installation:
-
-- `tkinter` (GUI framework)
-- `threading`, `queue`, `argparse`, `json`, `os`, `pathlib` (built-in modules)
-
-## Installation
-
-1. Download the script:
-
-```bash
-curl -O https://raw.githubusercontent.com/your-repo/ai-csv-profiler/main/ai_csv_profiler.py
-```
-
-1. Make it executable (optional):
-
-```bash
-chmod +x ai_csv_profiler.py
-```
-
-## Usage
-
-### GUI Mode (Default)
-
-Start the graphical interface by running the script without arguments:
-
-```bash
-python ai_csv_profiler.py
-```
-
-1. **Select File**: Click "Browse..." to choose your CSV file
-2. **Choose Output**: Click "Save As..." to specify where to save the JSON profile
-3. **Analyze**: Click "🔍 Analyze CSV" to generate the profile
-4. **View Results**: The profile is saved as JSON and a summary is displayed
-
-### Command Line Mode
-
-Analyze CSV files directly from the command line:
-
-```bash
-# Basic usage - output to console
-python ai_csv_profiler.py data.csv
-
-# Save to specific file
-python ai_csv_profiler.py data.csv -o profile.json
-
-# Using output flag
-python ai_csv_profiler.py data.csv --output analysis_results.json
-```
-
-## Output Format
-
-The profiler generates a JSON file with the following structure:
-
-```json
-{
-  "file": "sample.csv",
-  "shape": {
-    "rows": 1000,
-    "columns": 5
-  },
-  "columns": [
-    {
-      "name": "customer_id",
-      "type": "number",
-      "missing": 0,
-      "unique": 1000,
-      "samples": ["1", "2", "3"],
-      "likely_id": true,
-      "range": [1, 1000]
-    },
-    {
-      "name": "revenue",
-      "type": "number",
-      "missing": 5,
-      "unique": 847,
-      "samples": ["1250.50", "890.25", "2100.00"],
-      "likely_currency": true,
-      "mean": 1425.75,
-      "median": 1200.00,
-      "outlier_count": 23,
-      "distribution": "right_skewed"
-    }
-  ]
-}
-```
-
-## Column Analysis Features
-
-### All Columns
-
-- **Name**: Column header
-- **Type**: Simplified type (number, text, date, boolean)
-- **Missing**: Count of null/empty values
-- **Unique**: Number of unique values
-- **Samples**: 3 sample values for context
-
-### Numeric Columns
-
-- **Statistical Summary**: Mean, median, standard deviation, quartiles
-
-- **Range**: Minimum and maximum values
-
-- **Zero/Negative Counts**: Special value analysis
-
-- **Outlier Detection**: Count and percentage of outliers using IQR method
-
-- **Distribution Analysis**: Skewness detection (normal, left/right skewed)
-
-- Smart Classification
-
-  - **ID Detection**: Sequential unique numbers
-  - **Categorical Detection**: Low cardinality integers
-  - **Currency Detection**: Financial keyword recognition
-
-### Categorical Columns
-
-- **Value Counts**: Frequency distribution for columns with ≤50 unique values
-
-## Technical Details
-
-- **Framework**: Built using Python's Tkinter for cross-platform GUI compatibility
-- **Data Processing**: Powered by pandas for robust CSV parsing and analysis
-- **Multi-Threading**: Background processing ensures responsive GUI during analysis
-- **Encoding Support**: Automatic fallback through multiple encodings for international data
-- **Memory Efficient**: Processes large files without loading entire dataset into memory
-- **File Validation**: Pre-analysis checks for file size, format, and readability
-
-## Error Handling
-
-The application includes comprehensive error handling:
-
-- **File Validation**: Checks for existence, readability, and appropriate format
-- **Encoding Issues**: Automatic fallback through common encodings
-- **Large File Warnings**: User confirmation for files >100MB
-- **Malformed Data**: Graceful handling of parsing errors
-- **Permission Issues**: Clear error messages for file access problems
-
-## Use Cases
-
-- **Data Exploration**: Quick overview of unknown CSV files
-- **AI Assistant Integration**: Generate profiles for ChatGPT, Claude, or other AI tools
-- **Data Quality Assessment**: Identify missing values, outliers, and data types
-- **Preprocessing Planning**: Understand data characteristics before analysis
-- **Documentation**: Create structured metadata for datasets
-
-## Command Line Examples
-
-```bash
-# Analyze sales data
-python ai_csv_profiler.py sales_2024.csv -o sales_profile.json
-
-# Quick console output for small files
-python ai_csv_profiler.py customer_data.csv
-
-# Batch processing (shell script)
-for file in *.csv; do
-    python ai_csv_profiler.py "$file" -o "${file%.csv}_profile.json"
-done
-```
-
-## Acknowledgments
-
-- [Pandas](https://pandas.pydata.org/) for powerful data analysis capabilities
-- [Python's Tkinter](https://docs.python.org/3/library/tkinter.html) for cross-platform GUI development
-- [JSON](https://www.json.org/) specification for structured data exchange
+*A Python utility that builds concise, AI‑friendly JSON profiles of CSV files.
+Both a modern Tkinter GUI and a pure‑command‑line interface are provided, so you can explore data interactively or automate profiling in scripts.*
 
 ------
 
-ai-csv-profiler © 2025 is licensed under [Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International](https://creativecommons.org/licenses/by-nc-nd/4.0/)
+## 🎯 What the tool does
+
+| Feature                          | Why it matters                                               |
+| -------------------------------- | ------------------------------------------------------------ |
+| **AI‑Optimized JSON output**     | Gives downstream assistants (ChatGPT, Claude, etc.) exactly the fields they need—no fluff. |
+| **Dual UI** – GUI + CLI          | Pick the workflow that fits your habit: drag‑and‑drop or batch‑process. |
+| **Smart type detection**         | Auto‑recognises numeric, text, date/time, boolean and categorical columns. |
+| **Rich numeric analysis**        | Means, medians, quartiles, IQR‑based outlier count, skewness, auto‑ID/currency detection. |
+| **Robust file handling**         | Tries several encodings, warns on huge files, validates format before parsing. |
+| **Thread‑safe GUI**              | The UI stays responsive while the profiler works in the background. |
+| **Comprehensive error handling** | Friendly messages for missing files, permission problems, malformed CSVs, etc. |
+
+------
+
+## 📦 Requirements
+
+*Python 3.6+*
+
+```
+pip install pandas
+```
+
+### Linux – installing Tkinter
+
+```
+# Debian/Ubuntu
+sudo apt-get install python3-tk
+
+# Fedora/CentOS/RHEL
+sudo dnf install python3-tkinter   # or: sudo yum install tkinter
+```
+
+> **Note:** `tkinter`, `threading`, `queue`, `argparse`, `json`, `os`, `pathlib` are part of the Python standard library and need no extra installation.
+
+------
+
+## 🚀 Installation
+
+```
+# Grab the latest script
+curl -O https://raw.githubusercontent.com/your-repo/ai-csv-profiler/main/ai_csv_profiler.py
+
+# (Optional) Make it directly executable
+chmod +x ai_csv_profiler.py
+```
+
+------
+
+## 🖥️ Usage
+
+### GUI mode (default)
+
+```
+python ai_csv_profiler.py
+```
+
+1. **Select file** – “Browse…” → pick a CSV.
+2. **Choose output** – “Save As…” → set the destination JSON file.
+3. **Configure** – tick/untick *Include sample values* and *Detailed statistical analysis*.
+4. **Analyze** – press **🔍 Analyze CSV**.
+5. **Results** – a JSON file is written and a short summary appears in the log pane.
+
+### CLI mode
+
+```
+# Minimal – prints JSON to stdout
+python ai_csv_profiler.py data.csv
+
+# Write to a specific file
+python ai_csv_profiler.py data.csv -o profile.json
+
+# Long‑form flags (identical effect)
+python ai_csv_profiler.py data.csv --output analysis_results.json
+```
+
+Additional flags (shown in `--help`):
+
+| Flag               | Description                                                |
+| ------------------ | ---------------------------------------------------------- |
+| `--no-samples`     | Omit the three example values per column (smaller output). |
+| `--simple`         | Skip heavy statistics (faster, less detail).               |
+| `-v` / `--verbose` | Show progress messages and any warnings on the console.    |
+
+------
+
+## 📊 Output format
+
+The profiler writes a single JSON document. Below is a trimmed example that illustrates the schema:
+
+```
+{
+  "file": "sample.csv",
+  "shape": { "rows": 1000, "columns": 5 },
+  "columns": [
+    {
+      "name": "customer_id",
+      "type": "numeric",
+      "non_null": 1000,
+      "nulls": 0,
+      "samples": ["1", "2", "3"],
+      "analysis": "numeric",
+      "min": 1,
+      "max": 1000,
+      "mean": 500.5,
+      "median": 500,
+      "std": 288.7,
+      "zeroes": 0,
+      "positives": 1000,
+      "negatives": 0,
+      "distinct": 1000,
+      "likely_id": true
+    },
+    {
+      "name": "revenue",
+      "type": "numeric",
+      "non_null": 995,
+      "nulls": 5,
+      "samples": ["1250.50", "890.25", "2100.00"],
+      "analysis": "numeric",
+      "min": 45.0,
+      "max": 9876.0,
+      "mean": 1425.75,
+      "median": 1200.0,
+      "std": 850.3,
+      "outlier_count": 23,
+      "distribution": "right_skewed",
+      "likely_currency": true
+    },
+    {
+      "name": "signup_date",
+      "type": "datetime",
+      "non_null": 980,
+      "nulls": 20,
+      "samples": ["2023-01-15", "2023-02-03", "2023-03-22"],
+      "analysis": "datetime",
+      "min": "2022-01-01",
+      "max": "2024-12-31",
+      "distinct": 970
+    },
+    {
+      "name": "country",
+      "type": "categorical",
+      "non_null": 1000,
+      "nulls": 0,
+      "samples": ["US", "DE", "FR"],
+      "analysis": "categorical",
+      "distinct": 12,
+      "top_five": {"US": 400, "DE": 180, "FR": 150, "GB": 120, "CA": 50},
+      "mode": "US"
+    },
+    {
+      "name": "notes",
+      "type": "text",
+      "non_null": 950,
+      "nulls": 50,
+      "samples": ["VIP client", "Follow‑up needed", "No response"],
+      "analysis": "text",
+      "avg_length": 34.2,
+      "max_length": 128,
+      "min_length": 0,
+      "contains_numbers": 120,
+      "contains_special_chars": 45
+    }
+  ],
+  "warnings": [],
+  "metadata": {
+    "size_bytes": 842361,
+    "size_mb": 0.8,
+    "memory_usage_mb": 2.3,
+    "column_types": {
+      "customer_id": "object",
+      "revenue": "object",
+      "signup_date": "object",
+      "country": "object",
+      "notes": "object"
+    }
+  }
+}
+```
+
+### Key fields per column
+
+| Field                | Meaning                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| `type`               | Detected high‑level type (`numeric`, `datetime`, `categorical`, `text`). |
+| `non_null` / `nulls` | Count of present vs. missing values.                         |
+| `samples`            | Three representative non‑null values (truncated to 100 chars). |
+| `analysis`           | Sub‑section name – tells you which block of stats follows.   |
+| Numeric‑specific     | `min`, `max`, `mean`, `median`, `std`, `outlier_count`, `distribution`, `likely_id`, `likely_currency`. |
+| Datetime‑specific    | `min`, `max`, `distinct`, `nulls_after_parse`.               |
+| Categorical‑specific | `distinct`, `top_five` (value → count), `mode`.              |
+| Text‑specific        | Length stats, presence of numbers/special characters.        |
+
+------
+
+## 🛠️ Technical notes
+
+| Aspect                  | Detail                                                       |
+| ----------------------- | ------------------------------------------------------------ |
+| **Framework**           | Tkinter (cross‑platform GUI).                                |
+| **Data engine**         | pandas for CSV parsing and statistical calculations.         |
+| **Threading**           | GUI launches a background `threading.Thread`; results are passed back via a `queue.Queue`. |
+| **Encoding fallback**   | Tries UTF‑8 → UTF‑8‑sig → CP1252 → ISO‑8859‑1 → latin1 → ASCII → UTF‑16 → UTF‑32. |
+| **Large‑file handling** | Files > 500 MiB are read in chunks; a warning is added to the JSON `warnings` array. |
+| **Memory usage**        | `df.memory_usage(deep=True)` is reported; the profiler never forces the whole file into RAM when it can be chunked. |
+| **Error resilience**    | Every public method catches exceptions and returns a sensible default, ensuring the program never crashes. |
+
+------
+
+## ❗ Error handling
+
+| Situation                   | Message shown to the user                                    |
+| --------------------------- | ------------------------------------------------------------ |
+| File not found / unreadable | “Error: `<path>` not found or cannot be opened.”             |
+| Empty file                  | “File is empty – nothing to profile.”                        |
+| Unsupported encoding        | “All encoding attempts failed – please verify the file’s character set.” |
+| Very large file (> 100 MB)  | “Large file detected (≈ X MB). Continue? (Y/N)” (CLI) / GUI shows a modal warning. |
+| Unexpected parsing error    | “Critical analysis failure: `<exception>` – see log for stack trace.” |
+
+All messages are logged to the GUI’s text pane and printed to `stderr` in CLI mode.
+
+------
+
+## 💡 Typical use cases
+
+- **Quick data discovery** – Open an unknown CSV and get a concise summary within seconds.
+- **AI‑assistant pipelines** – Feed the JSON profile to LLMs that need structural hints before prompting.
+- **Data‑quality audits** – Spot missing values, outliers, and inconsistent types early.
+- **Pre‑processing planning** – Decide which columns need cleaning, encoding, or transformation before feeding data to a model.
+- **Documentation generation** – Export the JSON as part of a dataset’s metadata bundle.
+
+------
+
+## 📜 License
+
+`ai-csv-profiler © 2025` – Distributed under the **Creative Commons Attribution‑NonCommercial‑NoDerivatives 4.0 International** license.
+
+------
+
+## 🙏 Acknowledgments
+
+- **pandas** – for the powerful data‑frame abstraction.
+- **Tkinter** – for providing a lightweight, cross‑platform GUI without external dependencies.
+- The open‑source community for inspiration on robust CSV handling.
+
+------
+
+**Tip:** If you ever need the very latest bug‑fixes or want to contribute, fork the repository, push your changes, and open a Pull Request. The code is deliberately modular, so adding new column analyses (e.g., sentiment scoring for text) is straightforward.
