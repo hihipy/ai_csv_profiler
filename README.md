@@ -240,7 +240,7 @@ All messages are logged to the GUI’s text pane and printed to `stderr` in CLI 
 
 ## 📜 License
 
-`ai-csv-profiler © 2025` – Distributed under the **Creative Commons Attribution‑NonCommercial‑NoDerivatives 4.0 International** license.
+`ai-csv-profiler © 2025` – Distributed under the [**Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International**](https://creativecommons.org/licenses/by-nc-nd/4.0/) license.
 
 ------
 
