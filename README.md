@@ -239,17 +239,13 @@ All messages are logged to the GUI's text pane and printed to `stderr` in CLI mo
 
 ## License
 
-ai-csv-profiler © 2025
+This project is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
 
-Distributed under the [Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International](https://creativecommons.org/licenses/by-nc-nd/4.0/) license.
+You are free to:
+- Use, share, and adapt this work
+- Use it at your job
 
-------
-
-## Acknowledgments
-
-- **pandas** - Data-frame abstraction and statistical calculations.
-- **Tkinter** - Lightweight, cross-platform GUI without external dependencies.
-
-------
-
-**Tip:** If you need the latest fixes or want to contribute, fork the repository, push your changes, and open a Pull Request. The code is modular, so adding new column analyses (e.g., sentiment scoring for text) is straightforward.
+Under these terms:
+- **Attribution** — Credit the original author
+- **NonCommercial** — No selling or commercial products
+- **ShareAlike** — Derivatives must use the same license
