@@ -44,7 +44,7 @@ sudo dnf install python3-tkinter   # or: sudo yum install tkinter
 
 ```bash
 # Grab the latest script
-curl -O https://raw.githubusercontent.com/your-repo/ai-csv-profiler/main/ai_csv_profiler.py
+curl -O https://raw.githubusercontent.com/hihipy/ai-csv-profiler/main/ai_csv_profiler.py
 
 # (Optional) Make it directly executable
 chmod +x ai_csv_profiler.py
