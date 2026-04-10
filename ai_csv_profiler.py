@@ -16,6 +16,8 @@ Key Features:
 -   **Smart CSV Reading:** Automatically attempts to detect separators and encodings.
 -   **Accurate Type Inference:** Employs a sophisticated, heuristic-based
     algorithm to identify numeric, boolean, datetime, categorical, and text data.
+-   **Currency Detection:** Recognizes formatted currency values in any major
+    currency (USD, EUR, GBP, JPY, etc.) and analyzes them as numeric data.
 -   **Comprehensive Profiling:** Generates a detailed JSON report including file
     metadata, column statistics, and data quality warnings.
 """
@@ -25,6 +27,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import traceback
@@ -42,6 +45,19 @@ import warnings
 # --- Global Warning Suppression ---
 warnings.filterwarnings('ignore', category=pd.errors.DtypeWarning)
 warnings.filterwarnings('ignore', category=RuntimeWarning)
+
+# --- Currency Detection Constants ---
+# Covers the Unicode Currency Symbols block (U+20A0 to U+20CF) plus common
+# symbols that fall outside it ($ £ ¥ €). This handles USD, EUR, GBP, JPY,
+# INR, KRW, ILS, TRY, RUB, PHP, THB, VND, UAH, NGN, GHS, PYG, CRC, and more.
+_CURRENCY_SYMBOLS = r'\$€£¥\u20a0-\u20cf'
+_CURRENCY_VALUE_RE = re.compile(
+    r'^\s*[' + _CURRENCY_SYMBOLS + r']?\s*'   # optional leading symbol
+    r'[\(\-]?\s*'                               # optional negative indicator
+    r'[\d,\.\s]+'                               # digits with separators
+    r'\s*\)?\s*$'                               # optional closing paren
+)
+_CURRENCY_SYMBOL_STRIP_RE = re.compile(r'[' + _CURRENCY_SYMBOLS + r'\s]')
 
 
 class DefensiveAnalyzer:
@@ -83,6 +99,40 @@ class DefensiveAnalyzer:
 
             return result.fillna(fill_value)
 
+        except Exception:
+            return series.fillna(fill_value)
+
+    @staticmethod
+    def safe_convert_currency(series, fill_value=np.nan):
+        """
+        Converts a currency-formatted Series to numeric. Handles:
+        - Leading/trailing symbols: $, €, £, ¥, and all Unicode currency chars
+        - Thousands separators: commas and spaces (e.g. 1,234.56 or 1 234.56)
+        - Accounting negatives: parentheses (e.g. (1,234.56) -> -1234.56)
+        - Standard negatives: leading minus sign
+        - Surrounding whitespace
+        """
+        try:
+            def parse_one(val):
+                s = str(val).strip()
+                if s in ('', 'nan', 'None', 'NULL', 'N/A'):
+                    return fill_value
+                # Accounting-style negative: (1,234.56)
+                is_negative = s.startswith('(') and s.endswith(')')
+                # Strip currency symbols and whitespace
+                s = _CURRENCY_SYMBOL_STRIP_RE.sub('', s)
+                # Strip parentheses
+                s = s.strip('()')
+                # Remove thousands separators (commas)
+                s = s.replace(',', '')
+                s = s.strip()
+                try:
+                    result = float(s)
+                    return -result if is_negative else result
+                except (ValueError, TypeError):
+                    return fill_value
+
+            return series.apply(parse_one)
         except Exception:
             return series.fillna(fill_value)
 
@@ -194,28 +244,35 @@ class UltraRobustCSVProfiler:
             warnings_list.append("Could not determine file size")
 
         # Strategy 1: Iterate through encodings and separators.
+        # Tries both the C engine (fast, strict) and Python engine (slower,
+        # more permissive) for each combination, which catches files that one
+        # engine handles but the other does not.
         for encoding in self.encoding_attempts:
             for separator in self.separator_attempts:
-                try:
-                    df = pd.read_csv(
-                        file_path,
-                        encoding=encoding,
-                        sep=separator,
-                        on_bad_lines='skip',
-                        low_memory=False,
-                        dtype=str,
-                        na_values=[''],
-                        keep_default_na=False,
-                        engine='python'
-                    )
-                    if len(df.columns) > 1 and len(df) > 0:
-                        info_list.append(f"Read with encoding={encoding}, separator='{separator}'")
-                        return df, warnings_list, info_list
-                except Exception:
-                    continue
+                for engine in ['c', 'python']:
+                    try:
+                        kwargs = dict(
+                            encoding=encoding,
+                            sep=separator,
+                            on_bad_lines='skip',
+                            low_memory=False,
+                            dtype=str,
+                            na_values=[''],
+                            keep_default_na=False,
+                            engine=engine
+                        )
+                        df = pd.read_csv(file_path, **kwargs)
+                        if len(df.columns) > 1 and len(df) > 0:
+                            info_list.append(
+                                f"Read with encoding={encoding}, "
+                                f"separator='{separator}', engine={engine}"
+                            )
+                            return df, warnings_list, info_list
+                    except Exception:
+                        continue
 
         # Strategy 1.5: Try common encodings with auto-separator detection.
-        # This catches BOM-encoded files and other cases where Strategy 1 falls through.
+        # Catches BOM-encoded files and other edge cases that slip past Strategy 1.
         for encoding in ['utf-8-sig', 'utf-8', 'cp1252', 'iso-8859-1']:
             try:
                 df = pd.read_csv(
@@ -229,15 +286,17 @@ class UltraRobustCSVProfiler:
                     keep_default_na=False
                 )
                 if len(df.columns) > 1 and len(df) > 0:
-                    info_list.append(f"Read with encoding={encoding}, separator=auto-detected")
+                    info_list.append(
+                        f"Read with encoding={encoding}, separator=auto-detected"
+                    )
                     return df, warnings_list, info_list
             except Exception:
                 continue
 
         # Strategy 2: Fallback using pandas' automatic separator detection, utf-8 only.
         try:
-            df = pd.read_csv(file_path, encoding='utf-8', sep=None, engine='python',
-                             on_bad_lines='skip', dtype=str)
+            df = pd.read_csv(file_path, encoding='utf-8', sep=None,
+                             engine='python', on_bad_lines='skip', dtype=str)
             warnings_list.append("Used fallback reading method (auto-separator)")
             return df, warnings_list, info_list
         except Exception:
@@ -297,15 +356,19 @@ class UltraRobustCSVProfiler:
         }
         try:
             base_info["samples"] = self._get_safe_samples(series)
-            base_info["missing"] = self.analyzer.safe_execute(lambda: int(series.isnull().sum()), default=0)
+            base_info["missing"] = self.analyzer.safe_execute(
+                lambda: int(series.isnull().sum()), default=0)
             base_info["empty_strings"] = self.analyzer.safe_execute(
                 lambda: int((series.astype(str) == '').sum()), default=0)
-            base_info["unique"] = self.analyzer.safe_execute(lambda: int(series.nunique()), default=0)
+            base_info["unique"] = self.analyzer.safe_execute(
+                lambda: int(series.nunique()), default=0)
 
             detected_type = self._detect_column_type_safe(series)
             base_info["type"] = detected_type
 
-            if detected_type == "numeric":
+            if detected_type == "currency":
+                base_info.update(self._analyze_currency_safe(series))
+            elif detected_type == "numeric":
                 base_info.update(self._analyze_numeric_ultra_safe(series))
             elif detected_type == "boolean":
                 base_info.update(self._analyze_boolean_safe(series))
@@ -324,6 +387,39 @@ class UltraRobustCSVProfiler:
             base_info["type"] = "error"
             return base_info
 
+    def _is_currency_column(self, str_values: pd.Series) -> tuple:
+        """
+        Checks whether a Series looks like currency values. Returns a tuple of
+        (is_currency: bool, detected_symbol: str or None).
+
+        Detection requires that at least 80% of non-null values match the
+        currency pattern AND that at least one currency symbol is present
+        somewhere in the column (to avoid false-positives on plain numbers
+        with commas).
+        """
+        try:
+            sample = str_values.head(100)
+            if len(sample) == 0:
+                return False, None
+
+            match_count = sum(1 for v in sample if _CURRENCY_VALUE_RE.match(str(v)))
+            match_ratio = match_count / len(sample)
+
+            if match_ratio < 0.8:
+                return False, None
+
+            # Confirm at least one actual currency symbol is present.
+            all_text = ' '.join(sample.astype(str))
+            symbol_match = re.search(r'[' + _CURRENCY_SYMBOLS + r']', all_text)
+            if not symbol_match:
+                return False, None
+
+            detected_symbol = symbol_match.group(0)
+            return True, detected_symbol
+
+        except Exception:
+            return False, None
+
     def _detect_column_type_safe(self, series: pd.Series) -> str:
         try:
             clean_series = series.dropna()
@@ -337,20 +433,33 @@ class UltraRobustCSVProfiler:
 
             unique_str_lower = set(str_values.str.lower().unique())
 
-            boolean_patterns = [{'true', 'false'}, {'yes', 'no'}, {'y', 'n'}, {'1', '0'},
-                                 {'on', 'off'}, {'enabled', 'disabled'}, {'active', 'inactive'}]
+            # Heuristic 1: Boolean check first (prevents 1/0 being seen as numeric).
+            boolean_patterns = [
+                {'true', 'false'}, {'yes', 'no'}, {'y', 'n'}, {'1', '0'},
+                {'on', 'off'}, {'enabled', 'disabled'}, {'active', 'inactive'}
+            ]
             for pattern in boolean_patterns:
                 if len(unique_str_lower) <= 2 and unique_str_lower.issubset(pattern):
                     return "boolean"
 
+            # Heuristic 2: Date hint in column name.
             col_name = str(series.name).lower() if series.name else ""
             if any(keyword in col_name for keyword in ['date', 'dt', 'time', 'start', 'end']):
                 if self._could_be_datetime(str_values):
                     return "datetime"
 
+            # Heuristic 3: ID hint in column name.
             if any(keyword in col_name for keyword in ['id', 'response', 'uuid', 'key']):
                 return "text"
 
+            # Heuristic 4: Currency detection — before plain numeric so that
+            # formatted values like "$1,234.56" or "(€38.00)" are caught here
+            # instead of falling through to text.
+            is_currency, _ = self._is_currency_column(str_values)
+            if is_currency:
+                return "currency"
+
+            # Heuristic 5: Plain numeric check.
             try:
                 numeric_series = pd.to_numeric(str_values, errors='coerce')
                 numeric_ratio = numeric_series.notna().sum() / len(str_values)
@@ -362,9 +471,11 @@ class UltraRobustCSVProfiler:
             except Exception:
                 pass
 
+            # Heuristic 6: General datetime check.
             if self._could_be_datetime(str_values):
                 return "datetime"
 
+            # Heuristic 7: Categorical vs text based on cardinality.
             unique_count = len(unique_str_lower)
             total_count = len(str_values)
             if unique_count <= min(50, total_count * 0.5):
@@ -393,6 +504,69 @@ class UltraRobustCSVProfiler:
             return success_count >= len(sample) * 0.7
         except Exception:
             return False
+
+    def _analyze_currency_safe(self, series: pd.Series) -> dict:
+        """
+        Analyzes a currency-formatted column. Strips symbols and formatting,
+        converts to numeric, then runs full numeric analysis. Reports the
+        detected currency symbol and preserves a sample of the original
+        formatted values for reference.
+        """
+        result = {"analysis": "currency"}
+        try:
+            str_values = series.dropna().astype(str).str.strip()
+            _, detected_symbol = self._is_currency_column(str_values)
+            if detected_symbol:
+                result["currency_symbol"] = detected_symbol
+
+            # Convert to numeric using the currency-aware cleaner.
+            numeric_data = self.analyzer.safe_convert_currency(series)
+            clean_data = numeric_data.dropna()
+
+            if len(clean_data) == 0:
+                result["status"] = "no_valid_values"
+                return result
+
+            result["valid_numbers"] = len(clean_data)
+            result["invalid_numbers"] = len(series) - len(clean_data)
+
+            # Standard clipped statistics.
+            stats = {}
+            for stat_name in ['min', 'max', 'mean', 'median', 'std']:
+                stat_value = self.analyzer.safe_statistics(clean_data, stat_name)
+                if stat_value is not None:
+                    stats[stat_name] = round(stat_value, 4) if isinstance(stat_value, float) else stat_value
+            result["statistics"] = stats
+
+            # Raw min/max if they differ from the clipped values.
+            try:
+                raw_min = float(clean_data.min())
+                raw_max = float(clean_data.max())
+                if raw_min != stats.get('min') or raw_max != stats.get('max'):
+                    result["raw_statistics"] = {
+                        "min": raw_min,
+                        "max": raw_max,
+                        "note": "Raw min/max before 1%-99% outlier clipping"
+                    }
+            except Exception:
+                pass
+
+            quartiles = {}
+            for q, name in [(0.25, "q25"), (0.75, "q75")]:
+                q_val = self.analyzer.safe_statistics(clean_data, f"quantile_{q}")
+                if q_val is not None:
+                    quartiles[name] = round(q_val, 4)
+            result["quartiles"] = quartiles
+
+            result["zero_count"] = self.analyzer.safe_execute(
+                lambda: int((clean_data == 0).sum()), default=0)
+            result["negative_count"] = self.analyzer.safe_execute(
+                lambda: int((clean_data < 0).sum()), default=0)
+
+            return result
+        except Exception as e:
+            result["error"] = str(e)
+            return result
 
     def _analyze_numeric_ultra_safe(self, series: pd.Series) -> dict:
         """
@@ -445,8 +619,10 @@ class UltraRobustCSVProfiler:
                     quartiles[name] = round(q_val, 4)
             result["quartiles"] = quartiles
 
-            result["zero_count"] = self.analyzer.safe_execute(lambda: int((clean_data == 0).sum()), default=0)
-            result["negative_count"] = self.analyzer.safe_execute(lambda: int((clean_data < 0).sum()), default=0)
+            result["zero_count"] = self.analyzer.safe_execute(
+                lambda: int((clean_data == 0).sum()), default=0)
+            result["negative_count"] = self.analyzer.safe_execute(
+                lambda: int((clean_data < 0).sum()), default=0)
 
             unique_count = self.analyzer.safe_execute(lambda: clean_data.nunique(), default=0)
             if unique_count > 0:
@@ -502,7 +678,8 @@ class UltraRobustCSVProfiler:
             result.update({
                 "valid_dates": len(valid_dates),
                 "invalid_dates": len(clean_data) - len(valid_dates),
-                "success_rate": round(len(valid_dates) / len(clean_data) * 100, 1) if len(clean_data) > 0 else 0
+                "success_rate": round(
+                    len(valid_dates) / len(clean_data) * 100, 1) if len(clean_data) > 0 else 0
             })
 
             if len(valid_dates) > 0:
@@ -527,7 +704,8 @@ class UltraRobustCSVProfiler:
                 result["categories"] = len(value_counts)
                 result["values"] = {str(k): int(v) for k, v in value_counts.head(20).items()}
                 if len(value_counts) > 0:
-                    result["most_common_percentage"] = round(value_counts.iloc[0] / len(clean_data) * 100, 1)
+                    result["most_common_percentage"] = round(
+                        value_counts.iloc[0] / len(clean_data) * 100, 1)
             except Exception:
                 result["categories"] = len(set(clean_data.astype(str)))
             return result
@@ -551,7 +729,8 @@ class UltraRobustCSVProfiler:
 
             result.update({
                 "contains_numbers": int(clean_data.str.contains(r'\d', na=False).sum()),
-                "contains_special_chars": int(clean_data.str.contains(r'[^a-zA-Z0-9\s]', na=False).sum())
+                "contains_special_chars": int(
+                    clean_data.str.contains(r'[^a-zA-Z0-9\s]', na=False).sum())
             })
             return result
         except Exception as e:
@@ -628,17 +807,21 @@ class RobustProfilerGUI:
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(main_frame, text="CSV File:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=5)
+        ttk.Label(main_frame, text="CSV File:").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 10), pady=5)
         self.file_var = tk.StringVar()
         file_entry = ttk.Entry(main_frame, textvariable=self.file_var, state='readonly')
         file_entry.grid(row=0, column=1, sticky=tk.EW, padx=(0, 10), pady=5)
-        ttk.Button(main_frame, text="Browse...", command=self.browse_file).grid(row=0, column=2, pady=5)
+        ttk.Button(main_frame, text="Browse...", command=self.browse_file).grid(
+            row=0, column=2, pady=5)
 
-        ttk.Label(main_frame, text="Save to:").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=5)
+        ttk.Label(main_frame, text="Save to:").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 10), pady=5)
         self.output_var = tk.StringVar()
         output_entry = ttk.Entry(main_frame, textvariable=self.output_var, state='readonly')
         output_entry.grid(row=1, column=1, sticky=tk.EW, padx=(0, 10), pady=5)
-        self.save_btn = ttk.Button(main_frame, text="Save As...", command=self.save_as, state='disabled')
+        self.save_btn = ttk.Button(main_frame, text="Save As...", command=self.save_as,
+                                   state='disabled')
         self.save_btn.grid(row=1, column=2, pady=5)
 
         options_frame = ttk.LabelFrame(main_frame, text="Options", padding="10")
@@ -650,7 +833,7 @@ class RobustProfilerGUI:
         ttk.Checkbutton(options_frame, text="Detailed statistical analysis",
                         variable=self.detailed_analysis_var).pack(side=tk.LEFT, padx=10)
 
-        self.analyze_btn = ttk.Button(main_frame, text="🔍 Analyze CSV",
+        self.analyze_btn = ttk.Button(main_frame, text="Analyze CSV",
                                       command=self.start_analysis, state='disabled')
         self.analyze_btn.grid(row=3, column=0, columnspan=3, pady=(15, 10))
         self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
@@ -659,9 +842,11 @@ class RobustProfilerGUI:
         status_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=10)
         status_frame.columnconfigure(0, weight=1)
         self.status_var = tk.StringVar(value="Select a CSV file to begin analysis")
-        ttk.Label(status_frame, textvariable=self.status_var).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(status_frame, textvariable=self.status_var).grid(
+            row=0, column=0, sticky=tk.W)
         self.log_text = tk.Text(status_frame, height=8, wrap=tk.WORD)
-        scrollbar = ttk.Scrollbar(status_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        scrollbar = ttk.Scrollbar(status_frame, orient=tk.VERTICAL,
+                                   command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scrollbar.set)
         self.log_text.grid(row=1, column=0, sticky=tk.EW, pady=(5, 0))
         scrollbar.grid(row=1, column=1, sticky=tk.NS, pady=(5, 0))
@@ -714,7 +899,7 @@ class RobustProfilerGUI:
         self.log_text.delete(1.0, tk.END)
         self.progress.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
         self.progress.start(10)
-        self.status_var.set("🔄 Analyzing CSV file...")
+        self.status_var.set("Analyzing CSV file...")
         self.log_message("Starting analysis...")
 
         thread = threading.Thread(
@@ -736,7 +921,10 @@ class RobustProfilerGUI:
                 for col in profile.get("columns", []):
                     if "statistics" in col:
                         stats = col["statistics"]
-                        col["statistics"] = {k: v for k, v in stats.items() if k in ["min", "max", "mean", "count"]}
+                        col["statistics"] = {
+                            k: v for k, v in stats.items()
+                            if k in ["min", "max", "mean", "count"]
+                        }
                     col.pop("quartiles", None)
 
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -745,7 +933,11 @@ class RobustProfilerGUI:
             self.result_queue.put(("SUCCESS", output_path, profile))
 
         except Exception as e:
-            self.result_queue.put(("ERROR", f"Critical analysis failure: {str(e)}", traceback.format_exc()))
+            self.result_queue.put((
+                "ERROR",
+                f"Critical analysis failure: {str(e)}",
+                traceback.format_exc()
+            ))
 
     def check_results(self):
         try:
@@ -796,7 +988,7 @@ class RobustProfilerGUI:
                 if col_type != "error":
                     type_counts[col_type] = type_counts.get(col_type, 0) + 1
 
-            self.log_message(f"\nColumn types detected:")
+            self.log_message("\nColumn types detected:")
             for col_type, count in sorted(type_counts.items()):
                 self.log_message(f"  - {col_type}: {count}")
             if error_count > 0:
@@ -822,9 +1014,12 @@ def main():
             epilog="Designed to process most CSV files gracefully, with extensive error handling to prevent crashes."
         )
         parser.add_argument('csv_file', help='Path to the CSV file to analyze.')
-        parser.add_argument('-o', '--output', help='Path for the output JSON file (default: input_file.json).')
-        parser.add_argument('--no-samples', action='store_true', help='Exclude sample values from the output.')
-        parser.add_argument('--simple', action='store_true', help='Perform a simplified analysis (faster).')
+        parser.add_argument('-o', '--output',
+                            help='Path for the output JSON file (default: input_file.json).')
+        parser.add_argument('--no-samples', action='store_true',
+                            help='Exclude sample values from the output.')
+        parser.add_argument('--simple', action='store_true',
+                            help='Perform a simplified analysis (faster).')
         parser.add_argument('-v', '--verbose', action='store_true',
                             help='Show detailed progress and summary information.')
         args = parser.parse_args()
@@ -853,7 +1048,10 @@ def main():
             for col in profile.get("columns", []):
                 if "statistics" in col:
                     stats = col["statistics"]
-                    col["statistics"] = {k: v for k, v in stats.items() if k in ["min", "max", "mean", "count"]}
+                    col["statistics"] = {
+                        k: v for k, v in stats.items()
+                        if k in ["min", "max", "mean", "count"]
+                    }
                 col.pop("quartiles", None)
 
         output_file = args.output or str(Path(args.csv_file).with_suffix('.json'))
@@ -868,7 +1066,7 @@ def main():
         shape = profile.get("shape", {})
         warnings_list = profile.get("warnings", [])
         info_list = profile.get("info", [])
-        print(f"\nAnalysis completed successfully!")
+        print("\nAnalysis completed successfully!")
         print(f"Shape: {shape.get('rows', 0):,} rows x {shape.get('columns', 0)} columns")
         print(f"Profile saved to: {output_file}")
 
@@ -903,7 +1101,7 @@ def main():
     else:
         try:
             root = tk.Tk()
-            app = RobustProfilerGUI(root)
+            RobustProfilerGUI(root)
             root.update_idletasks()
             x = (root.winfo_screenwidth() // 2) - (root.winfo_width() // 2)
             y = (root.winfo_screenheight() // 2) - (root.winfo_height() // 2)
