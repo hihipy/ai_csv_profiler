@@ -11,8 +11,8 @@ A Python utility that builds concise, AI-friendly JSON profiles of CSV files. In
 | **AI-Optimized JSON output**     | Gives downstream assistants (ChatGPT, Claude, etc.) exactly the fields they need. |
 | **Dual UI: GUI + CLI**           | Pick the workflow that fits: point-and-click or batch processing. |
 | **Smart type detection**         | Auto-recognizes numeric, text, date/time, boolean, and categorical columns. |
-| **Rich numeric analysis**        | Means, medians, quartiles, IQR-based outlier count, skewness, auto-ID/currency detection. |
-| **Robust file handling**         | Tries several encodings, warns on huge files, validates format before parsing. |
+| **Rich numeric analysis**        | Means, medians, quartiles, clipped statistics, and raw outlier values reported separately. |
+| **Robust file handling**         | Tries several encodings (BOM-aware), multiple separator strategies, warns on huge files. |
 | **Thread-safe GUI**              | The UI stays responsive while the profiler works in the background. |
 | **Comprehensive error handling** | Friendly messages for missing files, permission problems, malformed CSVs, etc. |
 
@@ -105,16 +105,18 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
       "nulls": 0,
       "samples": ["1", "2", "3"],
       "analysis": "numeric",
-      "min": 1,
-      "max": 1000,
-      "mean": 500.5,
-      "median": 500,
-      "std": 288.7,
+      "statistics": {
+        "min": 1,
+        "max": 1000,
+        "mean": 500.5,
+        "median": 500,
+        "std": 288.7
+      },
       "zeroes": 0,
       "positives": 1000,
       "negatives": 0,
       "distinct": 1000,
-      "likely_id": true
+      "pattern": "likely_id"
     },
     {
       "name": "revenue",
@@ -123,14 +125,18 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
       "nulls": 5,
       "samples": ["1250.50", "890.25", "2100.00"],
       "analysis": "numeric",
-      "min": 45.0,
-      "max": 9876.0,
-      "mean": 1425.75,
-      "median": 1200.0,
-      "std": 850.3,
-      "outlier_count": 23,
-      "distribution": "right_skewed",
-      "likely_currency": true
+      "statistics": {
+        "min": 45.0,
+        "max": 9876.0,
+        "mean": 1425.75,
+        "median": 1200.0,
+        "std": 850.3
+      },
+      "raw_statistics": {
+        "min": -9.99e+15,
+        "max": 1.23e+16,
+        "note": "Raw min/max before 1%-99% outlier clipping"
+      }
     },
     {
       "name": "signup_date",
@@ -139,8 +145,7 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
       "nulls": 20,
       "samples": ["2023-01-15", "2023-02-03", "2023-03-22"],
       "analysis": "datetime",
-      "min": "2022-01-01",
-      "max": "2024-12-31",
+      "date_range": ["2022-01-01", "2024-12-31"],
       "distinct": 970
     },
     {
@@ -150,9 +155,8 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
       "nulls": 0,
       "samples": ["US", "DE", "FR"],
       "analysis": "categorical",
-      "distinct": 12,
-      "top_five": {"US": 400, "DE": 180, "FR": 150, "GB": 120, "CA": 50},
-      "mode": "US"
+      "categories": 12,
+      "values": {"US": 400, "DE": 180, "FR": 150, "GB": 120, "CA": 50}
     },
     {
       "name": "notes",
@@ -169,17 +173,13 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
     }
   ],
   "warnings": [],
+  "info": [
+    "Read with encoding=utf-8-sig, separator=auto-detected"
+  ],
   "metadata": {
     "size_bytes": 842361,
     "size_mb": 0.8,
-    "memory_usage_mb": 2.3,
-    "column_types": {
-      "customer_id": "object",
-      "revenue": "object",
-      "signup_date": "object",
-      "country": "object",
-      "notes": "object"
-    }
+    "memory_usage_mb": 2.3
   }
 }
 ```
@@ -188,14 +188,25 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
 
 | Field                | Meaning                                                      |
 | -------------------- | ------------------------------------------------------------ |
-| `type`               | Detected high-level type (`numeric`, `datetime`, `categorical`, `text`). |
+| `type`               | Detected high-level type (`numeric`, `datetime`, `categorical`, `text`, `boolean`). |
 | `non_null` / `nulls` | Count of present vs. missing values.                         |
 | `samples`            | Three representative non-null values (truncated to 100 chars). |
 | `analysis`           | Sub-section name indicating which block of stats follows.    |
-| Numeric-specific     | `min`, `max`, `mean`, `median`, `std`, `outlier_count`, `distribution`, `likely_id`, `likely_currency`. |
-| Datetime-specific    | `min`, `max`, `distinct`, `nulls_after_parse`.               |
-| Categorical-specific | `distinct`, `top_five` (value to count), `mode`.             |
+| Numeric-specific     | `statistics` (clipped 1%-99%), `raw_statistics` (true min/max, only present when outliers exist), `pattern` (`likely_id` or `likely_categorical`). |
+| Datetime-specific    | `date_range`, `valid_dates`, `invalid_dates`, `success_rate`. |
+| Categorical-specific | `categories` (distinct count), `values` (top 20 with counts), `most_common_percentage`. |
 | Text-specific        | Length stats, presence of numbers/special characters.        |
+
+### `warnings` vs `info`
+
+The output now separates two distinct message types:
+
+| Field      | Contains                                                     |
+| ---------- | ------------------------------------------------------------ |
+| `warnings` | Genuine data quality or file issues (e.g. large file, fallback parsing used, all read methods failed). |
+| `info`     | Informational messages about how the file was successfully read (e.g. encoding and separator detected). |
+
+A clean run will have an empty `warnings` array and one entry in `info`.
 
 ------
 
@@ -203,13 +214,27 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
 
 | Aspect                  | Detail                                                       |
 | ----------------------- | ------------------------------------------------------------ |
-| **Framework**           | Tkinter (cross-platform GUI).                                |
+| **Framework**           | Tkinter (cross-platform GUI). Uses `trace_add()` for Tcl 9 / Python 3.14+ compatibility. |
 | **Data engine**         | pandas for CSV parsing and statistical calculations.         |
 | **Threading**           | GUI launches a background `threading.Thread`; results are passed back via a `queue.Queue`. |
-| **Encoding fallback**   | Tries UTF-8, UTF-8-sig, CP1252, ISO-8859-1, latin1, ASCII, UTF-16, UTF-32. |
-| **Large-file handling** | Files over 500 MB are read in chunks; a warning is added to the JSON `warnings` array. |
-| **Memory usage**        | `df.memory_usage(deep=True)` is reported; the profiler avoids loading the whole file into RAM when it can be chunked. |
-| **Error resilience**    | Every public method catches exceptions and returns a sensible default, so the program never crashes. |
+| **Encoding strategy**   | Tries `utf-8-sig` first (handles BOM files cleanly), then `utf-8`, `cp1252`, `iso-8859-1`, `latin1`, `ascii`, `utf-16`, `utf-32`. A secondary pass uses auto-separator detection before falling back to manual parsing. |
+| **Numeric outliers**    | `statistics` values (min, max, mean, std) are clipped to the 1%-99% range. When the true min/max differ from the clipped values, they are preserved separately under `raw_statistics` so no data is silently lost. |
+| **Large-file handling** | Files over 500 MB trigger a warning in the `warnings` array. |
+| **Memory usage**        | `df.memory_usage(deep=True)` is reported in `metadata`.      |
+| **Error resilience**    | Every public method catches exceptions and returns a sensible default so the program never crashes. |
+
+------
+
+## CSV reading strategy
+
+The profiler attempts to read each file in four stages, stopping as soon as one succeeds:
+
+1. **Strategy 1** — Iterates all encoding + separator combinations explicitly.
+2. **Strategy 1.5** — Tries common encodings with pandas auto-separator detection. This handles BOM-encoded files and other edge cases that slip past Strategy 1.
+3. **Strategy 2** — UTF-8 with full auto-separator fallback. If this is reached, a warning is added to the output.
+4. **Strategy 3** — Manual line-by-line text parsing as a last resort.
+
+A successful read is always recorded in the `info` field, not `warnings`.
 
 ------
 
@@ -220,7 +245,7 @@ The profiler writes a single JSON document. Below is a trimmed example that illu
 | File not found / unreadable | "Error: `<path>` not found or cannot be opened."             |
 | Empty file                  | "File is empty - nothing to profile."                        |
 | Unsupported encoding        | "All encoding attempts failed - please verify the file's character set." |
-| Very large file (> 100 MB)  | "Large file detected (approx X MB). Continue? (Y/N)" (CLI) / GUI shows a modal warning. |
+| Very large file (> 500 MB)  | Warning added to JSON `warnings` array and shown in the GUI log. |
 | Unexpected parsing error    | "Critical analysis failure: `<exception>` - see log for stack trace." |
 
 All messages are logged to the GUI's text pane and printed to `stderr` in CLI mode.
