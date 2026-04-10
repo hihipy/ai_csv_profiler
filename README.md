@@ -13,6 +13,7 @@ A Python utility that builds concise, AI-friendly JSON profiles of CSV files. In
 | **Smart type detection**         | Auto-recognizes numeric, text, date/time, boolean, categorical, and currency columns. |
 | **Currency detection**           | Recognizes formatted currency values in any major currency (USD, EUR, GBP, JPY, and all Unicode currency symbols) and analyzes them as numeric data. |
 | **Rich numeric analysis**        | Means, medians, quartiles, clipped statistics, and raw outlier values reported separately. |
+| **Data quality warnings**        | Flags columns where raw min/max values are statistically suspect, using separate thresholds for numeric vs. currency columns. |
 | **Robust file handling**         | Tries multiple encodings and engines (BOM-aware), multiple separator strategies, warns on huge files. |
 | **Thread-safe GUI**              | The UI stays responsive while the profiler works in the background. |
 | **Comprehensive error handling** | Friendly messages for missing files, permission problems, malformed CSVs, etc. |
@@ -70,7 +71,7 @@ python ai_csv_profiler.py
 ### CLI mode
 
 ```bash
-# Minimal - prints JSON to stdout
+# Minimal - writes JSON next to the input file
 python ai_csv_profiler.py data.csv
 
 # Write to a specific file
@@ -226,10 +227,48 @@ The output separates two distinct message types:
 
 | Field      | Contains                                                     |
 | ---------- | ------------------------------------------------------------ |
-| `warnings` | Genuine data quality or file issues (e.g. large file, fallback parsing used, all read methods failed). |
+| `warnings` | Genuine data quality or file issues (e.g. large file, fallback parsing used, statistically suspect values). |
 | `info`     | Informational messages about how the file was successfully read (encoding, separator, and engine used). |
 
 A clean run will have an empty `warnings` array and one entry in `info`.
+
+------
+
+## Tuning the outlier warning thresholds
+
+The profiler flags numeric and currency columns where the raw min or max is unusually far from the clipped mean. Two constants at the top of `ai_csv_profiler.py` control how sensitive this check is:
+
+```python
+_OUTLIER_SD_THRESHOLD_NUMERIC  = 5   # for plain numeric columns (FTE, counts, etc.)
+_OUTLIER_SD_THRESHOLD_CURRENCY = 30  # for currency columns (salary, revenue, etc.)
+```
+
+**Why two thresholds?**
+
+Financial data naturally has long tails. A column containing both a $0.01 part-time allocation and a $233K grant commitment is real data — not corrupt. The currency threshold is set much higher to avoid false positives on that kind of spread. Plain numeric columns (like FTE, which should sit between 0 and 1) are held to a tighter standard.
+
+**Warning message format:**
+
+```
+Column 'FTE': raw min/max values are 93508247281341072 standard deviations
+from the mean (threshold: 5 SDs for type 'numeric') — possible data entry
+error or corrupt values. See raw_statistics for details.
+```
+
+The threshold is included in the message so you know exactly which limit was hit and why.
+
+**How to adjust if warnings are too noisy or too quiet:**
+
+Open `ai_csv_profiler.py` and find the two constants near the top of the file (just below the currency regex constants). Increase the value to make the check less sensitive, decrease it to make it stricter:
+
+| Situation | Recommendation |
+| --------- | -------------- |
+| Currency columns warn on legitimate salary/revenue spread | Raise `_OUTLIER_SD_THRESHOLD_CURRENCY` (try incrementing by 10) |
+| FTE or count columns are not catching obvious corruption | Lower `_OUTLIER_SD_THRESHOLD_NUMERIC` (try 3) |
+| All warnings are noise for your dataset | Raise both thresholds |
+| You want warnings on any value beyond 2 SDs | Lower both to 2-3 |
+
+**Rule of thumb:** if you know your data well and a warning is flagging a column that is clean, raise that column type's threshold by 10 and re-run. If a corrupt value is slipping through undetected, lower the threshold by 2 and re-run.
 
 ------
 
@@ -242,8 +281,9 @@ A clean run will have an empty `warnings` array and one entry in `info`.
 | **Threading**           | GUI launches a background `threading.Thread`; results are passed back via a `queue.Queue`. |
 | **Encoding strategy**   | Tries `utf-8-sig` first (handles BOM files cleanly), then `utf-8`, `cp1252`, `iso-8859-1`, `latin1`, `ascii`, `utf-16`, `utf-32`. Each encoding is tried with both the C engine (fast, strict) and Python engine (slower, more permissive) before moving on. |
 | **Currency detection**  | Uses compiled regex against the Unicode currency symbols block (`U+20A0`-`U+20CF`) plus `$`, `£`, `¥`, `€`. Requires 80% of sampled values to match the pattern and at least one symbol present to avoid false positives. Accounting-style negatives like `$(1,234.56)` are converted to `-1234.56`. |
-| **Numeric outliers**    | `statistics` values (min, max, mean, std) are clipped to the 1%-99% range. When the true min/max differ, they are preserved separately under `raw_statistics`. |
-| **Large-file handling** | Files over 500 MB trigger a warning in the `warnings` array. |
+| **Numeric outliers**    | `statistics` values (min, max, mean, std) are clipped to the 1%-99% range. When the true min/max differ, they are preserved separately under `raw_statistics`. Outlier warnings use separate SD thresholds per column type. |
+| **Column name stripping** | Leading/trailing whitespace is stripped from all column names on read, preventing downstream issues in Power BI, pandas selectors, and JSON keys. |
+| **Large-file handling** | Files over 100 MB are read in chunks of 50,000 rows. Files over 500 MB trigger an additional warning. |
 | **Memory usage**        | `df.memory_usage(deep=True)` is reported in `metadata`.      |
 | **Error resilience**    | Every public method catches exceptions and returns a sensible default so the program never crashes. |
 
@@ -269,6 +309,7 @@ A successful read is always recorded in the `info` field, not `warnings`. The in
 | File not found / unreadable | "Error: `<path>` not found or cannot be opened."             |
 | Empty file                  | "File is empty - nothing to profile."                        |
 | Unsupported encoding        | "All encoding attempts failed - please verify the file's character set." |
+| Large file (> 100 MB)       | Info message added; chunked reading is used automatically.   |
 | Very large file (> 500 MB)  | Warning added to JSON `warnings` array and shown in the GUI log. |
 | Unexpected parsing error    | "Critical analysis failure: `<exception>` - see log for stack trace." |
 
