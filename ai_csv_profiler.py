@@ -116,7 +116,7 @@ class DefensiveAnalyzer:
     """
 
     @staticmethod
-    def safe_execute(func, *args, default=None, **kwargs):
+    def execute(func, *args, default=None, **kwargs):
         """
         Execute *func* and return its result; return *default* on any error.
 
@@ -150,7 +150,7 @@ class DefensiveAnalyzer:
             return default
 
     @staticmethod
-    def safe_convert_numeric(series, fill_value=np.nan):
+    def convert_numeric(series, fill_value=np.nan):
         """
         Convert a pandas Series to numeric with maximum safety.
 
@@ -199,7 +199,7 @@ class DefensiveAnalyzer:
             return series.fillna(fill_value)
 
     @staticmethod
-    def safe_convert_currency(series, fill_value=np.nan):
+    def convert_currency(series, fill_value=np.nan):
         """
         Convert a currency-formatted Series to float.
 
@@ -251,7 +251,7 @@ class DefensiveAnalyzer:
             return series.fillna(fill_value)
 
     @staticmethod
-    def safe_statistics(data, stat_name):
+    def compute_stat(data, stat_name):
         """
         Compute a single statistic on *data* with outlier clipping.
 
@@ -313,7 +313,7 @@ class DefensiveAnalyzer:
             return None
 
 
-class UltraRobustCSVProfiler:
+class CSVProfiler:
     """
     Core profiling engine.
 
@@ -380,7 +380,7 @@ class UltraRobustCSVProfiler:
         }
 
         try:
-            df, read_warnings, read_info = self._read_csv_ultra_safe(
+            df, read_warnings, read_info = self._read_csv(
                 file_path
             )
             base_profile["warnings"].extend(read_warnings)
@@ -403,11 +403,11 @@ class UltraRobustCSVProfiler:
                 "columns": len(df.columns),
             }
             base_profile["status"] = "processed"
-            base_profile["columns"] = self._analyze_all_columns_safe(df)
+            base_profile["columns"] = self._analyze_all_columns(df)
             base_profile["warnings"].extend(
                 self._check_data_quality(base_profile["columns"])
             )
-            base_profile["metadata"] = self._get_file_metadata_safe(
+            base_profile["metadata"] = self._get_file_metadata(
                 file_path, df
             )
 
@@ -423,7 +423,7 @@ class UltraRobustCSVProfiler:
     # CSV Reading
     # ------------------------------------------------------------------
 
-    def _read_csv_ultra_safe(self, file_path: str) -> tuple:
+    def _read_csv(self, file_path: str) -> tuple:
         """
         Read a CSV using a four-stage fallback strategy.
 
@@ -636,7 +636,7 @@ class UltraRobustCSVProfiler:
         Parameters
         ----------
         columns : list[dict]
-            Column profile dicts produced by _analyze_all_columns_safe.
+            Column profile dicts produced by _analyze_all_columns.
 
         Returns
         -------
@@ -699,7 +699,7 @@ class UltraRobustCSVProfiler:
     # Column Analysis
     # ------------------------------------------------------------------
 
-    def _analyze_all_columns_safe(self, df: pd.DataFrame) -> list:
+    def _analyze_all_columns(self, df: pd.DataFrame) -> list:
         """
         Analyze every column in *df*, isolating errors per column.
 
@@ -720,7 +720,7 @@ class UltraRobustCSVProfiler:
         column_profiles = []
         for position, col_name in enumerate(df.columns):
             try:
-                profile = self._analyze_single_column_safe(
+                profile = self._analyze_column(
                     df[col_name], str(col_name)
                 )
                 profile["position"] = position
@@ -737,7 +737,7 @@ class UltraRobustCSVProfiler:
 
         return column_profiles
 
-    def _analyze_single_column_safe(
+    def _analyze_column(
         self, series: pd.Series, col_name: str
     ) -> dict:
         """
@@ -769,30 +769,30 @@ class UltraRobustCSVProfiler:
         }
 
         try:
-            base["samples"] = self._get_safe_samples(series)
-            base["missing"] = self.analyzer.safe_execute(
+            base["samples"] = self._get_samples(series)
+            base["missing"] = self.analyzer.execute(
                 lambda: int(series.isnull().sum()), default=0
             )
-            base["empty_strings"] = self.analyzer.safe_execute(
+            base["empty_strings"] = self.analyzer.execute(
                 lambda: int((series.astype(str) == "").sum()), default=0
             )
-            base["unique"] = self.analyzer.safe_execute(
+            base["unique"] = self.analyzer.execute(
                 lambda: int(series.nunique()), default=0
             )
 
-            detected_type = self._detect_column_type_safe(series)
+            detected_type = self._detect_column_type(series)
             base["type"] = detected_type
 
             # Dispatch to the appropriate type-specific analyzer.
             type_dispatch = {
-                "currency":    self._analyze_currency_safe,
-                "numeric":     self._analyze_numeric_ultra_safe,
-                "boolean":     self._analyze_boolean_safe,
-                "datetime":    self._analyze_datetime_safe,
-                "categorical": self._analyze_categorical_safe,
+                "currency":    self._analyze_currency,
+                "numeric":     self._analyze_numeric,
+                "boolean":     self._analyze_boolean,
+                "datetime":    self._analyze_datetime,
+                "categorical": self._analyze_categorical,
             }
             analyzer_fn = type_dispatch.get(
-                detected_type, self._analyze_text_safe
+                detected_type, self._analyze_text
             )
             base.update(analyzer_fn(series))
 
@@ -809,7 +809,7 @@ class UltraRobustCSVProfiler:
     # Type Detection
     # ------------------------------------------------------------------
 
-    def _detect_column_type_safe(self, series: pd.Series) -> str:
+    def _detect_column_type(self, series: pd.Series) -> str:
         """
         Determine the most appropriate type label for a column.
 
@@ -999,8 +999,8 @@ class UltraRobustCSVProfiler:
         """
         Compute the standard numeric statistics block.
 
-        Shared between _analyze_numeric_ultra_safe and
-        _analyze_currency_safe to avoid duplication.
+        Shared between _analyze_numeric and
+        _analyze_currency to avoid duplication.
 
         Parameters
         ----------
@@ -1018,7 +1018,7 @@ class UltraRobustCSVProfiler:
         # Clipped statistics (1%-99%).
         stats = {}
         for stat_name in ("min", "max", "mean", "median", "std"):
-            val = self.analyzer.safe_statistics(clean_data, stat_name)
+            val = self.analyzer.compute_stat(clean_data, stat_name)
             if val is not None:
                 stats[stat_name] = (
                     round(val, 4) if isinstance(val, float) else val
@@ -1042,17 +1042,17 @@ class UltraRobustCSVProfiler:
         # Quartiles.
         quartiles = {}
         for q_frac, q_name in ((0.25, "q25"), (0.75, "q75")):
-            q_val = self.analyzer.safe_statistics(
+            q_val = self.analyzer.compute_stat(
                 clean_data, f"quantile_{q_frac}"
             )
             if q_val is not None:
                 quartiles[q_name] = round(q_val, 4)
         result["quartiles"] = quartiles
 
-        result["zero_count"] = self.analyzer.safe_execute(
+        result["zero_count"] = self.analyzer.execute(
             lambda: int((clean_data == 0).sum()), default=0
         )
-        result["negative_count"] = self.analyzer.safe_execute(
+        result["negative_count"] = self.analyzer.execute(
             lambda: int((clean_data < 0).sum()), default=0
         )
 
@@ -1062,11 +1062,11 @@ class UltraRobustCSVProfiler:
     # Type-Specific Analyzers
     # ------------------------------------------------------------------
 
-    def _analyze_currency_safe(self, series: pd.Series) -> dict:
+    def _analyze_currency(self, series: pd.Series) -> dict:
         """
         Analyze a currency-formatted column.
 
-        Strips symbols and formatting via safe_convert_currency, then
+        Strips symbols and formatting via convert_currency, then
         runs the standard numeric statistics block. Also records the
         detected currency symbol and the count of values that could not
         be parsed.
@@ -1089,7 +1089,7 @@ class UltraRobustCSVProfiler:
             if detected_symbol:
                 result["currency_symbol"] = detected_symbol
 
-            numeric_data = self.analyzer.safe_convert_currency(series)
+            numeric_data = self.analyzer.convert_currency(series)
             clean_data = numeric_data.dropna()
 
             if len(clean_data) == 0:
@@ -1106,11 +1106,11 @@ class UltraRobustCSVProfiler:
             result["error"] = str(exc)
             return result
 
-    def _analyze_numeric_ultra_safe(self, series: pd.Series) -> dict:
+    def _analyze_numeric(self, series: pd.Series) -> dict:
         """
         Analyze a plain numeric column.
 
-        Converts values via safe_convert_numeric then runs the shared
+        Converts values via convert_numeric then runs the shared
         _build_numeric_stats block. Also detects likely-ID columns
         (all unique values) and likely-categorical numeric columns
         (20 or fewer distinct values).
@@ -1127,7 +1127,7 @@ class UltraRobustCSVProfiler:
         """
         result = {"analysis": "numeric"}
         try:
-            numeric_data = self.analyzer.safe_convert_numeric(series)
+            numeric_data = self.analyzer.convert_numeric(series)
             clean_data = numeric_data.dropna()
 
             if len(clean_data) == 0:
@@ -1150,7 +1150,7 @@ class UltraRobustCSVProfiler:
             result.update(self._build_numeric_stats(clean_data))
 
             # Pattern hints for downstream consumers.
-            unique_count = self.analyzer.safe_execute(
+            unique_count = self.analyzer.execute(
                 lambda: clean_data.nunique(), default=0
             )
             if unique_count and unique_count == len(clean_data):
@@ -1171,7 +1171,7 @@ class UltraRobustCSVProfiler:
             result["error"] = str(exc)
             return result
 
-    def _analyze_boolean_safe(self, series: pd.Series) -> dict:
+    def _analyze_boolean(self, series: pd.Series) -> dict:
         """
         Analyze a boolean column.
 
@@ -1222,7 +1222,7 @@ class UltraRobustCSVProfiler:
             result["error"] = str(exc)
             return result
 
-    def _analyze_datetime_safe(self, series: pd.Series) -> dict:
+    def _analyze_datetime(self, series: pd.Series) -> dict:
         """
         Analyze a datetime column.
 
@@ -1271,7 +1271,7 @@ class UltraRobustCSVProfiler:
             result["error"] = str(exc)
             return result
 
-    def _analyze_categorical_safe(self, series: pd.Series) -> dict:
+    def _analyze_categorical(self, series: pd.Series) -> dict:
         """
         Analyze a categorical column.
 
@@ -1315,7 +1315,7 @@ class UltraRobustCSVProfiler:
             result["error"] = str(exc)
             return result
 
-    def _analyze_text_safe(self, series: pd.Series) -> dict:
+    def _analyze_text(self, series: pd.Series) -> dict:
         """
         Analyze a free-text column.
 
@@ -1364,7 +1364,7 @@ class UltraRobustCSVProfiler:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_safe_samples(self, series: pd.Series, n: int = 3) -> list:
+    def _get_samples(self, series: pd.Series, n: int = 3) -> list:
         """
         Return up to *n* representative non-null sample values.
 
@@ -1408,7 +1408,7 @@ class UltraRobustCSVProfiler:
         except Exception:
             return []
 
-    def _get_file_metadata_safe(
+    def _get_file_metadata(
         self, file_path: str, df: pd.DataFrame
     ) -> dict:
         """
@@ -1456,7 +1456,7 @@ class UltraRobustCSVProfiler:
 # GUI
 # ===========================================================================
 
-class RobustProfilerGUI:
+class ProfilerGUI:
     """
     Tkinter GUI for the CSV profiler.
 
@@ -1476,7 +1476,7 @@ class RobustProfilerGUI:
             The root Tkinter window.
         """
         self.master = master
-        self.profiler = UltraRobustCSVProfiler()
+        self.profiler = CSVProfiler()
         self.result_queue: queue.Queue = queue.Queue()
         self._setup_ui()
 
@@ -1821,7 +1821,7 @@ def main() -> int:
         if args.verbose:
             print(f"Analyzing: {args.csv_file}")
 
-        profiler = UltraRobustCSVProfiler()
+        profiler = CSVProfiler()
         profile = profiler.profile(args.csv_file)
 
         if profile.get("status") == "error":
@@ -1900,7 +1900,7 @@ def main() -> int:
         # ---- GUI mode ------------------------------------------------------
         try:
             root = tk.Tk()
-            RobustProfilerGUI(root)
+            ProfilerGUI(root)
             root.update_idletasks()
             x = (root.winfo_screenwidth() // 2) - (root.winfo_width() // 2)
             y = (root.winfo_screenheight() // 2) - (root.winfo_height() // 2)
